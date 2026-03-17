@@ -27,6 +27,33 @@ attach to a bug report or share with a colleague.
 
 ---
 
+## Install as a skill
+
+shell-report is packaged as a skill for Claude Code and OpenAI Codex. Install
+it into your agent's skills directory and it will be automatically available
+in every project.
+
+```sh
+# Claude Code
+git clone https://github.com/callumalpass/shell-report ~/.claude/skills/shell-report
+
+# OpenAI Codex
+git clone https://github.com/callumalpass/shell-report ~/.codex/skills/shell-report
+```
+
+Once installed, the agent will suggest using shell-report when you ask it to
+document findings, generate a reproducible report, or validate a hypothesis.
+Run `sr.mjs` from the skill directory:
+
+```sh
+node ~/.claude/skills/shell-report/sr.mjs report.html
+node ~/.codex/skills/shell-report/sr.mjs report.html
+```
+
+Or clone anywhere and run directly — no install required.
+
+---
+
 ## Quick start
 
 ```sh

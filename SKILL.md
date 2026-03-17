@@ -7,7 +7,6 @@ description: >
   "produce a reproducible report", "document these findings", or wants to
   validate agent findings interactively. Also trigger when the user asks to
   run `sr` or `sr.mjs`.
-version: 1.0.0
 ---
 
 # shell-report
@@ -23,8 +22,14 @@ the browser.
 
 ## Running the server
 
+`sr.mjs` lives alongside this SKILL.md in the skill directory. Locate it relative to this file, or find it with:
+
 ```sh
-node /path/to/sr.mjs <file.html|file.md> [options]
+find ~/.claude/skills ~/.codex/skills -name sr.mjs 2>/dev/null
+```
+
+```sh
+node /path/to/skill/sr.mjs <file.html|file.md> [options]
 ```
 
 | Option | Description |
