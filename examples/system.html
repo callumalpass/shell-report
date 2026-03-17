@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>System overview</title>
+</head>
+<body>
+  <h1>System overview</h1>
+
+  <p>
+    Environment identity and toolchain versions. All cells autorun on load.
+    The working directory cell captures its output so later cells can reference
+    it via <code>{{cwd}}</code>.
+  </p>
+
+  <h2>Working directory</h2>
+  <pre data-cmd="pwd" data-cmd-var="cwd" data-cmd-autorun></pre>
+
+  <h2>Shell and user</h2>
+  <pre data-cmd="echo &quot;shell: $SHELL\nuser:  $(whoami)\nhome:  $HOME&quot;" data-cmd-autorun></pre>
+
+  <h2>Runtimes</h2>
+  <pre data-cmd="echo &quot;node $(node --version 2>/dev/null || echo n/a)\npnpm $(pnpm --version 2>/dev/null || echo n/a)\npython $(python3 --version 2>/dev/null || echo n/a)\ngit  $(git --version 2>/dev/null | cut -d' ' -f3 || echo n/a)&quot;" data-cmd-autorun></pre>
+
+  <h2>Disk usage</h2>
+  <pre data-cmd="df -h | head -5" data-cmd-autorun></pre>
+
+  <h2>Git status</h2>
+  <p>Run from <code>{{cwd}}</code>. Shows the current branch and whether there are uncommitted changes.</p>
+  <pre data-cmd="cd {{cwd}} && git status --short --branch 2>/dev/null || echo 'not a git repo'"></pre>
+
+  <h2>Recent git log</h2>
+  <pre data-cmd="cd {{cwd}} && git log --oneline -10 2>/dev/null || echo 'not a git repo'"></pre>
+
+  <h2>Environment variables (non-secret)</h2>
+  <p>PATH, NODE_ENV, and any PP_ or CI variables set in this shell.</p>
+  <pre data-cmd="env | grep -E '^(PATH|NODE_ENV|CI|PP_|PNPM|NVM)' | sort"></pre>
+
+  <hr>
+
+  <h2>Transform example — package dependency count</h2>
+  <p>
+    This cell uses a <code>data-cmd-transform</code> to render a simple summary
+    instead of raw JSON. Demonstrates per-cell custom rendering.
+  </p>
+
+  <div id="dep-summary"
+       data-cmd="cat package.json 2>/dev/null || echo '{&quot;dependencies&quot;:{},&quot;devDependencies&quot;:{}}'"
+       data-cmd-transform="renderDepSummary"></div>
+
+  <script>
+  function renderDepSummary(el, { stdout, exitCode }) {
+    try {
+      const pkg = JSON.parse(stdout);
+      const deps    = Object.keys(pkg.dependencies    || {}).length;
+      const devDeps = Object.keys(pkg.devDependencies || {}).length;
+      const name    = pkg.name    || '(unnamed)';
+      const version = pkg.version || '';
+      el.innerHTML =
+        '<p style="font-family:monospace;font-size:13px">' +
+        '<strong>' + name + '</strong>' + (version ? ' v' + version : '') +
+        ' &mdash; ' + deps + ' dep' + (deps !== 1 ? 's' : '') +
+        ', ' + devDeps + ' devDep' + (devDeps !== 1 ? 's' : '') +
+        '</p>';
+    } catch (_) {
+      el.textContent = stdout || '(no package.json found)';
+    }
+  }
+  </script>
+</body>
+</html>
