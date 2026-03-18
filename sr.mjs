@@ -43,6 +43,19 @@ if (!fs.existsSync(srcPath)) {
 
 const SHELL_LANGS = new Set(['cmd', 'sh', 'bash', 'zsh', 'shell']);
 
+function escHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escAttr(text) {
+  return escHtml(text)
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function parseAttrs(str) {
   if (!str) return {};
   const out = {};
@@ -55,16 +68,13 @@ function parseAttrs(str) {
 }
 
 function mdToHtml(src) {
-  function esc(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  }
   function inline(s) {
-    return esc(s)
+    return escHtml(s)
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/__(.+?)__/g, '<strong>$1</strong>')
       .replace(/\*(.+?)\*/g, '<em>$1</em>')
       .replace(/`(.+?)`/g, '<code>$1</code>')
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => `<a href="${escAttr(href)}">${label}</a>`);
   }
 
   const lines = src.split('\n');
@@ -90,16 +100,16 @@ function mdToHtml(src) {
       if (SHELL_LANGS.has(lang) && cmd) {
         const attrs = parseAttrs(attrsStr);
         const parts = [
-          `data-cmd="${esc(cmd)}"`,
+          `data-cmd="${escAttr(cmd)}"`,
           'autorun'   in attrs ? 'data-cmd-autorun'                           : '',
-          attrs.timeout   ? `data-cmd-timeout="${esc(attrs.timeout)}"`   : '',
-          attrs.var       ? `data-cmd-var="${esc(attrs.var)}"`           : '',
-          attrs.transform ? `data-cmd-transform="${esc(attrs.transform)}"` : '',
-          attrs.shell     ? `data-cmd-shell="${esc(attrs.shell)}"`       : '',
+          attrs.timeout   ? `data-cmd-timeout="${escAttr(attrs.timeout)}"`   : '',
+          attrs.var       ? `data-cmd-var="${escAttr(attrs.var)}"`           : '',
+          attrs.transform ? `data-cmd-transform="${escAttr(attrs.transform)}"` : '',
+          attrs.shell     ? `data-cmd-shell="${escAttr(attrs.shell)}"`       : '',
         ].filter(Boolean).join(' ');
         out.push(`<pre ${parts}></pre>`);
       } else {
-        out.push(`<pre><code class="language-${esc(lang)}">${esc(codeLines.join('\n'))}</code></pre>`);
+        out.push(`<pre><code class="language-${escAttr(lang)}">${escHtml(codeLines.join('\n'))}</code></pre>`);
       }
       continue;
     }
@@ -147,7 +157,7 @@ function mdToHtml(src) {
   }
 
   const title = (src.match(/^#\s+(.+)/m) ?? [])[1] ?? path.basename(srcPath, path.extname(srcPath));
-  const escTitle = title.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const escTitle = escHtml(title);
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><title>${escTitle}</title></head>
@@ -171,26 +181,72 @@ function injectRuntime(html) {
     : html + '\n' + injection;
 }
 
+const MAX_BODY = 1024 * 1024; // 1 MB
+
+function readJsonBody(req, res, onValid) {
+  let body = '';
+  let overflow = false;
+  req.on('data', d => {
+    body += d;
+    if (body.length > MAX_BODY) {
+      overflow = true;
+      req.destroy();
+    }
+  });
+  req.on('end', () => {
+    if (overflow) return;
+    try {
+      onValid(JSON.parse(body));
+    } catch {
+      if (!res.headersSent) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+      }
+    }
+  });
+  req.on('close', () => {
+    if (overflow && !res.headersSent) {
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Request body too large' }));
+    }
+  });
+}
+
 // ── Command execution ─────────────────────────────────────────────────────────
 
 function runCommand(cmd, sh, timeoutSecs, onChunk, onDone) {
   const proc = spawn(sh ?? shellBin, ['-c', cmd], { env: process.env, cwd: cwdDir });
   let finished = false;
+  let timeoutTriggered = false;
+  let killTimer;
 
   const timer = setTimeout(() => {
-    finished = true;
+    timeoutTriggered = true;
     proc.kill('SIGTERM');
-    onChunk('stderr', `[timeout after ${timeoutSecs}s]\n`);
-    onDone(124);
+    killTimer = setTimeout(() => proc.kill('SIGKILL'), 1000);
   }, timeoutSecs * 1000);
 
   proc.stdout.on('data', d => { if (!finished) onChunk('stdout', d.toString()); });
   proc.stderr.on('data', d => { if (!finished) onChunk('stderr', d.toString()); });
   proc.on('close', code => {
-    if (finished) return;
     clearTimeout(timer);
+    if (killTimer) clearTimeout(killTimer);
+    if (finished) return;
     finished = true;
+    if (timeoutTriggered) {
+      onChunk('stderr', `[timeout after ${timeoutSecs}s]\n`);
+      onDone(124);
+      return;
+    }
     onDone(code ?? 0);
+  });
+  proc.on('error', err => {
+    clearTimeout(timer);
+    if (killTimer) clearTimeout(killTimer);
+    if (finished) return;
+    finished = true;
+    onChunk('stderr', `${err.message}\n`);
+    onDone(1);
   });
 }
 
@@ -202,7 +258,7 @@ const sseClients = new Set();
 let queue = Promise.resolve();
 function enqueue(fn) {
   const next = queue.then(fn);
-  queue = next.catch(() => {});
+  queue = next.catch(err => { process.stderr.write(`sr: queue error: ${err}\n`); });
   return next;
 }
 
@@ -237,10 +293,7 @@ const server = http.createServer((req, res) => {
 
   // Buffered exec
   if (req.method === 'POST' && pathname === '/api/exec') {
-    let body = '';
-    req.on('data', d => (body += d));
-    req.on('end', () => {
-      const { command, shell: sh, timeout = 30 } = JSON.parse(body);
+    readJsonBody(req, res, ({ command, shell: sh, timeout = 30 }) => {
       enqueue(() => new Promise(resolve => {
         let stdout = '', stderr = '';
         runCommand(command, sh, timeout,
@@ -258,10 +311,7 @@ const server = http.createServer((req, res) => {
 
   // Streaming exec
   if (req.method === 'POST' && pathname === '/api/exec-stream') {
-    let body = '';
-    req.on('data', d => (body += d));
-    req.on('end', () => {
-      const { command, shell: sh, timeout = 30 } = JSON.parse(body);
+    readJsonBody(req, res, ({ command, shell: sh, timeout = 30 }) => {
       enqueue(() => new Promise(resolve => {
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',
@@ -348,8 +398,17 @@ const STYLES = `
   .nb-lbl {
     font-family: ui-monospace, monospace; font-size: 11px;
     color: #aaa; margin-bottom: 4px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    display: flex; align-items: center; gap: 6px;
   }
+  .nb-lbl-text {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+  }
+  .nb-copy {
+    background: none; border: none; cursor: pointer;
+    color: #ccc; font-size: 11px; padding: 1px 4px; line-height: 1;
+    font-family: ui-monospace, monospace;
+  }
+  .nb-copy:hover { color: #1a73e8; }
 
   [data-cmd-state=pending] pre { opacity: 0.5; }
   [data-cmd-state=running] pre { border-left: 3px solid #1a73e8; padding-left: 12px; }
@@ -451,8 +510,9 @@ const CLIENT_RUNTIME = `
         var resp = await fetch('/api/exec', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ command: cmd, shell: sh }),
+          body: JSON.stringify({ command: cmd, shell: sh, timeout: timeout }),
         });
+        if (!resp.ok) throw new Error('Server returned ' + resp.status);
         var data = await resp.json();
         stdout = data.stdout; stderr = data.stderr; exitCode = data.exitCode;
       } catch (e) {
@@ -486,6 +546,18 @@ const CLIENT_RUNTIME = `
     }
   }
 
+  function copyBtn(title, getText) {
+    var b = document.createElement('button');
+    b.className = 'nb-copy'; b.title = title; b.textContent = 'copy';
+    b.addEventListener('click', function () {
+      navigator.clipboard.writeText(getText()).then(function () {
+        b.textContent = 'copied';
+        setTimeout(function () { b.textContent = 'copy'; }, 1200);
+      }, function () {});
+    });
+    return b;
+  }
+
   // Wrap each cell with gutter play button + command label
   var cells = Array.from(document.querySelectorAll('[data-cmd]'));
   cells.forEach(function (el) {
@@ -506,9 +578,24 @@ const CLIENT_RUNTIME = `
     right.className = 'nb-right';
     var lbl = document.createElement('div');
     lbl.className = 'nb-lbl';
-    lbl.textContent = el.getAttribute('data-cmd');
+    var lblText = document.createElement('span');
+    lblText.className = 'nb-lbl-text';
+    lblText.textContent = el.getAttribute('data-cmd');
+    lbl.appendChild(lblText);
+    var cmdCopy = copyBtn('Copy command', function () { return el.getAttribute('data-cmd'); });
+    var outCopy = copyBtn('Copy output', function () { return el.textContent; });
+    outCopy.style.display = 'none';
+    lbl.appendChild(cmdCopy);
+    lbl.appendChild(outCopy);
     right.appendChild(lbl);
     right.appendChild(el);
+
+    // Show output copy button once cell has run
+    var obs = new MutationObserver(function () {
+      var state = el.dataset.cmdState;
+      outCopy.style.display = (state === 'done' || state === 'error') ? '' : 'none';
+    });
+    obs.observe(el, { attributes: true, attributeFilter: ['data-cmd-state'] });
 
     wrap.appendChild(gutter);
     wrap.appendChild(right);
