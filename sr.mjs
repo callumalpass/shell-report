@@ -400,26 +400,28 @@ const STYLES = `
   }
   .nb-play:hover { color: #1a73e8; }
   .nb-right { min-width: 0; }
+  .nb-lbl-wrap {
+    display: flex; align-items: flex-start; gap: 6px;
+    margin-bottom: 8px;
+    width: min(100%, 960px); max-width: 100%;
+  }
   .nb-lbl {
     font-family: ui-monospace, monospace; font-size: 11px;
-    color: #6a6a6a; margin-bottom: 8px;
-    position: relative;
-    width: min(100%, 960px);
-    max-width: 100%;
+    color: #6a6a6a;
+    white-space: pre; overflow-x: auto; min-width: 0; flex: 1 1 auto;
     background: #f3f4f6;
     border: 1px solid #e1e4e8;
     border-radius: 10px;
     padding: 8px 10px;
     box-sizing: border-box;
   }
-  .nb-lbl-text {
-    white-space: pre; min-width: 0;
-    overflow-x: auto; padding-right: 52px;
+  .nb-lbl-copy {
+    flex: 0 0 auto; margin-top: 6px;
+    background: none; border: none; cursor: pointer;
+    color: #bbb; font-size: 10px; padding: 2px 0; line-height: 1;
+    font-family: ui-monospace, monospace;
   }
-  .nb-lbl .nb-copy {
-    position: absolute; right: 10px; top: 50%;
-    transform: translateY(-50%);
-  }
+  .nb-lbl-copy:hover { color: #1a73e8; }
   .nb-copy {
     border: 1px solid #d2d6dc; border-radius: 999px; cursor: pointer;
     background: #fff; color: #5f6368; font-size: 11px; padding: 3px 8px; line-height: 1.2;
@@ -678,15 +680,22 @@ const CLIENT_RUNTIME = `
 
     var right = document.createElement('div');
     right.className = 'nb-right';
+    var lblWrap = document.createElement('div');
+    lblWrap.className = 'nb-lbl-wrap';
     var lbl = document.createElement('div');
     lbl.className = 'nb-lbl';
-    var lblText = document.createElement('span');
-    lblText.className = 'nb-lbl-text';
-    lblText.textContent = el.getAttribute('data-cmd');
-    lbl.appendChild(lblText);
-    var cmdCopy = copyBtn('Copy command', function () { return el.getAttribute('data-cmd'); });
-    lbl.appendChild(cmdCopy);
-    right.appendChild(lbl);
+    lbl.textContent = el.getAttribute('data-cmd');
+    lblWrap.appendChild(lbl);
+    var cmdCopy = document.createElement('button');
+    cmdCopy.className = 'nb-lbl-copy'; cmdCopy.title = 'Copy command'; cmdCopy.textContent = 'copy';
+    cmdCopy.addEventListener('click', function () {
+      navigator.clipboard.writeText(el.getAttribute('data-cmd')).then(function () {
+        cmdCopy.textContent = '\\u2713';
+        setTimeout(function () { cmdCopy.textContent = 'copy'; }, 1200);
+      }, function () {});
+    });
+    lblWrap.appendChild(cmdCopy);
+    right.appendChild(lblWrap);
 
     var output = document.createElement('div');
     output.className = 'nb-output';
