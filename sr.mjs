@@ -215,7 +215,12 @@ function readJsonBody(req, res, onValid) {
 // ── Command execution ─────────────────────────────────────────────────────────
 
 function runCommand(cmd, sh, timeoutSecs, onChunk, onDone) {
-  const proc = spawn(sh ?? shellBin, ['-c', cmd], { env: process.env, cwd: cwdDir, windowsHide: true });
+  const shell = sh ?? shellBin;
+  const isPwsh = /powershell|pwsh/i.test(shell);
+  const args = isPwsh
+    ? ['-NoLogo', '-NonInteractive', '-Command', cmd]
+    : ['-c', cmd];
+  const proc = spawn(shell, args, { env: process.env, cwd: cwdDir, windowsHide: true });
   let finished = false;
   let timeoutTriggered = false;
   let killTimer;
@@ -398,7 +403,6 @@ const STYLES = `
   .nb-lbl {
     font-family: ui-monospace, monospace; font-size: 11px;
     color: #6a6a6a; margin-bottom: 8px;
-    display: flex; align-items: center;
     position: relative;
     width: min(100%, 960px);
     max-width: 100%;
@@ -407,14 +411,14 @@ const STYLES = `
     border-radius: 10px;
     padding: 8px 10px;
     box-sizing: border-box;
-    overflow-x: auto;
   }
   .nb-lbl-text {
     white-space: pre; min-width: 0;
+    overflow-x: auto; padding-right: 52px;
   }
   .nb-lbl .nb-copy {
-    position: sticky; right: 0;
-    margin-left: auto; flex-shrink: 0;
+    position: absolute; right: 10px; top: 50%;
+    transform: translateY(-50%);
   }
   .nb-copy {
     border: 1px solid #d2d6dc; border-radius: 999px; cursor: pointer;
