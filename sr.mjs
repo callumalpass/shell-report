@@ -397,23 +397,71 @@ const STYLES = `
   .nb-right { min-width: 0; }
   .nb-lbl {
     font-family: ui-monospace, monospace; font-size: 11px;
-    color: #aaa; margin-bottom: 4px;
-    display: flex; align-items: center; gap: 6px;
+    color: #6a6a6a; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+    width: min(100%, 960px);
+    max-width: 100%;
+    overflow-x: auto;
+    background: #f3f4f6;
+    border: 1px solid #e1e4e8;
+    border-radius: 10px;
+    padding: 8px 10px;
+    box-sizing: border-box;
   }
   .nb-lbl-text {
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+    white-space: pre; min-width: 0; flex: 1 1 auto;
   }
   .nb-copy {
-    background: none; border: none; cursor: pointer;
-    color: #ccc; font-size: 11px; padding: 1px 4px; line-height: 1;
+    border: 1px solid #d2d6dc; border-radius: 999px; cursor: pointer;
+    background: #fff; color: #5f6368; font-size: 11px; padding: 3px 8px; line-height: 1.2;
     font-family: ui-monospace, monospace;
+    flex: 0 0 auto;
   }
-  .nb-copy:hover { color: #1a73e8; }
+  .nb-copy:hover { color: #1a73e8; border-color: #a8c7fa; }
 
-  [data-cmd-state=pending] pre { opacity: 0.5; }
-  [data-cmd-state=running] pre { border-left: 3px solid #1a73e8; padding-left: 12px; }
-  [data-cmd-state=done]    pre { border-left: 3px solid #34a853; padding-left: 12px; }
-  [data-cmd-state=error]   pre { border-left: 3px solid #ea4335; padding-left: 12px; color: #c00; }
+  .nb-output {
+    width: min(100%, 960px);
+    max-width: 100%;
+  }
+  .nb-output-body {
+    max-width: 100%;
+    overflow-x: auto;
+    background: #f3f4f6;
+    border: 1px solid #e1e4e8;
+    border-radius: 10px;
+    padding: 12px 14px;
+    box-sizing: border-box;
+  }
+  .nb-output > pre,
+  .nb-output-body > pre {
+    margin: 0;
+    min-width: max-content;
+  }
+  .nb-output-actions {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 8px 4px 0;
+  }
+  .nb-status {
+    display: inline-flex; align-items: center; gap: 8px;
+    color: #5f6368; font: 11px ui-monospace, monospace;
+  }
+  .nb-status-dot {
+    width: 8px; height: 8px; border-radius: 999px; background: currentColor;
+    opacity: 0;
+  }
+  [data-cmd-state=pending] .nb-output-body { opacity: 0.72; }
+  [data-cmd-state=running] .nb-output-body { border-color: #8ab4f8; box-shadow: 0 0 0 1px rgba(26,115,232,0.08); }
+  [data-cmd-state=done] .nb-output-body { border-color: #9ad1a9; }
+  [data-cmd-state=error] .nb-output-body { border-color: #ea4335; color: #b3261e; }
+  [data-cmd-state=running] .nb-status { color: #1a73e8; }
+  [data-cmd-state=running] .nb-status-dot {
+    opacity: 1;
+    animation: nb-pulse 1s ease-in-out infinite;
+  }
+  @keyframes nb-pulse {
+    0%, 100% { transform: scale(0.85); opacity: 0.35; }
+    50% { transform: scale(1); opacity: 1; }
+  }
 
   .nb-err { font-family: ui-monospace, monospace; font-size: 12px; padding: 8px 0; }
   .nb-err-title { color: #c00; font-weight: 600; }
@@ -558,6 +606,29 @@ const CLIENT_RUNTIME = `
     return b;
   }
 
+  function setCellChrome(el, wrap, btn, statusEl, outCopy) {
+    var state = el.dataset.cmdState;
+    wrap.dataset.cmdState = state;
+    outCopy.style.display = (state === 'done' || state === 'error') ? '' : 'none';
+    if (state === 'running') {
+      btn.textContent = '...';
+      btn.title = 'Running';
+      statusEl.innerHTML = '<span class="nb-status-dot"></span><span>Running...</span>';
+    } else if (state === 'done') {
+      btn.textContent = '\\u25b6';
+      btn.title = 'Run';
+      statusEl.textContent = 'Completed';
+    } else if (state === 'error') {
+      btn.textContent = '\\u25b6';
+      btn.title = 'Run';
+      statusEl.textContent = 'Failed';
+    } else {
+      btn.textContent = '\\u25b6';
+      btn.title = 'Run';
+      statusEl.textContent = 'Ready';
+    }
+  }
+
   // Wrap each cell with gutter play button + command label
   var cells = Array.from(document.querySelectorAll('[data-cmd]'));
   cells.forEach(function (el) {
@@ -583,19 +654,31 @@ const CLIENT_RUNTIME = `
     lblText.textContent = el.getAttribute('data-cmd');
     lbl.appendChild(lblText);
     var cmdCopy = copyBtn('Copy command', function () { return el.getAttribute('data-cmd'); });
-    var outCopy = copyBtn('Copy output', function () { return el.textContent; });
-    outCopy.style.display = 'none';
     lbl.appendChild(cmdCopy);
-    lbl.appendChild(outCopy);
     right.appendChild(lbl);
-    right.appendChild(el);
 
-    // Show output copy button once cell has run
+    var output = document.createElement('div');
+    output.className = 'nb-output';
+    var outputBody = document.createElement('div');
+    outputBody.className = 'nb-output-body';
+    output.appendChild(outputBody);
+    outputBody.appendChild(el);
+
+    var actions = document.createElement('div');
+    actions.className = 'nb-output-actions';
+    var status = document.createElement('span');
+    status.className = 'nb-status';
+    actions.appendChild(status);
+    var outCopy = copyBtn('Copy output', function () { return el.textContent; });
+    actions.appendChild(outCopy);
+    output.appendChild(actions);
+    right.appendChild(output);
+
     var obs = new MutationObserver(function () {
-      var state = el.dataset.cmdState;
-      outCopy.style.display = (state === 'done' || state === 'error') ? '' : 'none';
+      setCellChrome(el, wrap, btn, status, outCopy);
     });
     obs.observe(el, { attributes: true, attributeFilter: ['data-cmd-state'] });
+    setCellChrome(el, wrap, btn, status, outCopy);
 
     wrap.appendChild(gutter);
     wrap.appendChild(right);
@@ -645,9 +728,12 @@ const CLIENT_RUNTIME = `
     ss.textContent = [
       '.nb-gutter,.nb-bar{display:none!important}',
       '.nb-cell{display:block;margin-bottom:20px}',
-      '.nb-lbl{font-family:monospace;font-size:11px;color:#aaa;margin-bottom:4px}',
-      '[data-cmd-state=done] pre{border-left:3px solid #34a853;padding-left:12px}',
-      '[data-cmd-state=error] pre{border-left:3px solid #ea4335;padding-left:12px;color:#c00}',
+      '.nb-lbl,.nb-output-body{max-width:960px;overflow-x:auto;background:#f3f4f6;border:1px solid #e1e4e8;border-radius:10px;box-sizing:border-box}',
+      '.nb-lbl{font-family:monospace;font-size:11px;color:#6a6a6a;margin-bottom:8px;padding:8px 10px}',
+      '.nb-output-body{padding:12px 14px}',
+      '.nb-output-actions{display:none!important}',
+      '[data-cmd-state=done] .nb-output-body{border-color:#9ad1a9}',
+      '[data-cmd-state=error] .nb-output-body{border-color:#ea4335;color:#b3261e}',
     ].join('\\n');
     var head = clone.querySelector('head');
     if (head) head.appendChild(ss);
