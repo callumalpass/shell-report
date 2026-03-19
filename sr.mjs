@@ -423,19 +423,19 @@ const STYLES = `
   }
   .nb-lbl-copy:hover { color: #1a73e8; }
   .nb-copy {
-    border: 1px solid #d2d6dc; border-radius: 999px; cursor: pointer;
-    background: #fff; color: #5f6368; font-size: 11px; padding: 3px 8px; line-height: 1.2;
+    background: none; border: none; cursor: pointer;
+    color: #bbb; font-size: 10px; padding: 2px 0; line-height: 1;
     font-family: ui-monospace, monospace;
-    flex: 0 0 auto;
   }
-  .nb-copy:hover { color: #1a73e8; border-color: #a8c7fa; }
+  .nb-copy:hover { color: #1a73e8; }
 
   .nb-output {
+    display: grid; grid-template-columns: 1fr auto; gap: 0 6px;
     width: min(100%, 960px);
     max-width: 100%;
   }
   .nb-output-body {
-    max-width: 100%;
+    min-width: 0;
     overflow-x: auto;
     background: #f3f4f6;
     border: 1px solid #e1e4e8;
@@ -449,12 +449,14 @@ const STYLES = `
     min-width: max-content;
   }
   .nb-output-actions {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 10px; padding: 8px 4px 0;
+    display: flex; flex-direction: column; align-items: flex-start;
+    gap: 4px; padding-top: 6px;
   }
   .nb-status {
+    grid-column: 1 / -1;
     display: inline-flex; align-items: center; gap: 8px;
     color: #5f6368; font: 11px ui-monospace, monospace;
+    padding: 4px 4px 0;
   }
   .nb-status-dot {
     width: 8px; height: 8px; border-radius: 999px; background: currentColor;
@@ -475,12 +477,11 @@ const STYLES = `
   }
 
   .nb-toggle {
-    border: 1px solid #d2d6dc; border-radius: 999px; cursor: pointer;
-    background: #fff; color: #5f6368; font-size: 11px; padding: 3px 8px; line-height: 1.2;
+    background: none; border: none; cursor: pointer;
+    color: #bbb; font-size: 10px; padding: 2px 0; line-height: 1;
     font-family: ui-monospace, monospace;
-    flex: 0 0 auto;
   }
-  .nb-toggle:hover { color: #1a73e8; border-color: #a8c7fa; }
+  .nb-toggle:hover { color: #1a73e8; }
   [data-collapsed] .nb-output-body { display: none; }
 
   .nb-cell[data-focused] .nb-lbl {
@@ -701,14 +702,10 @@ const CLIENT_RUNTIME = `
     output.className = 'nb-output';
     var outputBody = document.createElement('div');
     outputBody.className = 'nb-output-body';
-    output.appendChild(outputBody);
     outputBody.appendChild(el);
-
+    output.appendChild(outputBody);
     var actions = document.createElement('div');
     actions.className = 'nb-output-actions';
-    var status = document.createElement('span');
-    status.className = 'nb-status';
-    actions.appendChild(status);
     var toggle = document.createElement('button');
     toggle.className = 'nb-toggle'; toggle.textContent = 'collapse';
     toggle.style.display = 'none';
@@ -721,6 +718,9 @@ const CLIENT_RUNTIME = `
     var outCopy = copyBtn('Copy output', function () { return el.textContent; });
     actions.appendChild(outCopy);
     output.appendChild(actions);
+    var status = document.createElement('span');
+    status.className = 'nb-status';
+    output.appendChild(status);
     right.appendChild(output);
 
     var obs = new MutationObserver(function () {
