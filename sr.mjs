@@ -401,7 +401,6 @@ const STYLES = `
     display: flex; align-items: center; gap: 8px;
     width: min(100%, 960px);
     max-width: 100%;
-    overflow-x: auto;
     background: #f3f4f6;
     border: 1px solid #e1e4e8;
     border-radius: 10px;
@@ -410,6 +409,7 @@ const STYLES = `
   }
   .nb-lbl-text {
     white-space: pre; min-width: 0; flex: 1 1 auto;
+    overflow-x: auto;
   }
   .nb-copy {
     border: 1px solid #d2d6dc; border-radius: 999px; cursor: pointer;
@@ -461,6 +461,20 @@ const STYLES = `
   @keyframes nb-pulse {
     0%, 100% { transform: scale(0.85); opacity: 0.35; }
     50% { transform: scale(1); opacity: 1; }
+  }
+
+  .nb-toggle {
+    border: 1px solid #d2d6dc; border-radius: 999px; cursor: pointer;
+    background: #fff; color: #5f6368; font-size: 11px; padding: 3px 8px; line-height: 1.2;
+    font-family: ui-monospace, monospace;
+    flex: 0 0 auto;
+  }
+  .nb-toggle:hover { color: #1a73e8; border-color: #a8c7fa; }
+  [data-collapsed] .nb-output-body { display: none; }
+
+  .nb-cell[data-focused] .nb-lbl {
+    border-color: #8ab4f8;
+    box-shadow: 0 0 0 1px rgba(26,115,232,0.08);
   }
 
   .nb-err { font-family: ui-monospace, monospace; font-size: 12px; padding: 8px 0; }
@@ -522,6 +536,7 @@ const CLIENT_RUNTIME = `
 
     el.dataset.cmdState = 'running';
     el.textContent = '';
+    var t0 = Date.now();
 
     var stdout = '', stderr = '', exitCode = 0, streamed = false;
 
@@ -565,6 +580,7 @@ const CLIENT_RUNTIME = `
         stdout = data.stdout; stderr = data.stderr; exitCode = data.exitCode;
       } catch (e) {
         el.textContent = 'Network error: ' + e.message;
+        el.dataset.cmdMs = String(Date.now() - t0);
         el.dataset.cmdState = 'error';
         return;
       }
@@ -574,10 +590,12 @@ const CLIENT_RUNTIME = `
 
     if (exitCode === 0) {
       if (varName) window._vars[varName] = stdout.trim();
+      el.dataset.cmdMs = String(Date.now() - t0);
       el.dataset.cmdState = 'done';
       if (xf) xf(el, { stdout: stdout, stderr: stderr, exitCode: exitCode });
       else if (!streamed) el.textContent = stdout;
     } else {
+      el.dataset.cmdMs = String(Date.now() - t0);
       el.dataset.cmdState = 'error';
       if (xf) { xf(el, { stdout: stdout, stderr: stderr, exitCode: exitCode }); return; }
       var c = classify(stderr, exitCode);
@@ -606,10 +624,12 @@ const CLIENT_RUNTIME = `
     return b;
   }
 
-  function setCellChrome(el, wrap, btn, statusEl, outCopy) {
+  function setCellChrome(el, wrap, btn, statusEl, toggle, outCopy) {
     var state = el.dataset.cmdState;
     wrap.dataset.cmdState = state;
-    outCopy.style.display = (state === 'done' || state === 'error') ? '' : 'none';
+    var showActions = state === 'done' || state === 'error';
+    outCopy.style.display = showActions ? '' : 'none';
+    toggle.style.display = showActions ? '' : 'none';
     if (state === 'running') {
       btn.textContent = '...';
       btn.title = 'Running';
@@ -617,11 +637,13 @@ const CLIENT_RUNTIME = `
     } else if (state === 'done') {
       btn.textContent = '\\u25b6';
       btn.title = 'Run';
-      statusEl.textContent = 'Completed';
+      var ms = el.dataset.cmdMs;
+      statusEl.textContent = ms ? 'Completed in ' + (ms / 1000).toFixed(1) + 's' : 'Completed';
     } else if (state === 'error') {
       btn.textContent = '\\u25b6';
       btn.title = 'Run';
-      statusEl.textContent = 'Failed';
+      var ms = el.dataset.cmdMs;
+      statusEl.textContent = ms ? 'Failed in ' + (ms / 1000).toFixed(1) + 's' : 'Failed';
     } else {
       btn.textContent = '\\u25b6';
       btn.title = 'Run';
@@ -669,19 +691,33 @@ const CLIENT_RUNTIME = `
     var status = document.createElement('span');
     status.className = 'nb-status';
     actions.appendChild(status);
+    var toggle = document.createElement('button');
+    toggle.className = 'nb-toggle'; toggle.textContent = 'collapse';
+    toggle.style.display = 'none';
+    toggle.addEventListener('click', function () {
+      var collapsed = output.hasAttribute('data-collapsed');
+      if (collapsed) { output.removeAttribute('data-collapsed'); toggle.textContent = 'collapse'; }
+      else { output.setAttribute('data-collapsed', ''); toggle.textContent = 'expand'; }
+    });
+    actions.appendChild(toggle);
     var outCopy = copyBtn('Copy output', function () { return el.textContent; });
     actions.appendChild(outCopy);
     output.appendChild(actions);
     right.appendChild(output);
 
     var obs = new MutationObserver(function () {
-      setCellChrome(el, wrap, btn, status, outCopy);
+      setCellChrome(el, wrap, btn, status, toggle, outCopy);
     });
     obs.observe(el, { attributes: true, attributeFilter: ['data-cmd-state'] });
-    setCellChrome(el, wrap, btn, status, outCopy);
+    setCellChrome(el, wrap, btn, status, toggle, outCopy);
 
     wrap.appendChild(gutter);
     wrap.appendChild(right);
+
+    wrap.addEventListener('click', function (e) {
+      if (e.target.closest('button')) return;
+      focusCell(cells.indexOf(el));
+    });
   });
 
   // Sticky top bar: Run all + Save snapshot
@@ -698,6 +734,37 @@ const CLIENT_RUNTIME = `
   bar.appendChild(btnAll);
   bar.appendChild(btnSave);
   document.body.insertBefore(bar, document.body.firstChild);
+
+  // Keyboard navigation
+  var focusedIdx = -1;
+  var wraps = Array.from(document.querySelectorAll('.nb-cell'));
+
+  function focusCell(idx) {
+    if (idx < 0 || idx >= cells.length) return;
+    if (focusedIdx >= 0 && wraps[focusedIdx]) wraps[focusedIdx].removeAttribute('data-focused');
+    focusedIdx = idx;
+    wraps[idx].setAttribute('data-focused', '');
+    wraps[idx].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.ctrlKey && e.shiftKey && e.key === 'Enter') {
+      e.preventDefault();
+      btnAll.click();
+      return;
+    }
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      focusCell(focusedIdx < 0 ? 0 : Math.min(focusedIdx + 1, cells.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      focusCell(focusedIdx < 0 ? 0 : Math.max(focusedIdx - 1, 0));
+    } else if (e.key === 'Enter' && focusedIdx >= 0) {
+      e.preventDefault();
+      runCell(cells[focusedIdx]);
+    }
+  });
 
   // Autorun cells in document order
   (async function () {
